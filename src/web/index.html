@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>财报表格识别 · Excel / JSON</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#fff; --line:#e5e8ed; --line-strong:#d6dbe3;
+    --text:#1c2024; --text-2:#5b6572; --text-3:#8a94a1;
+    --accent:#2563eb; --accent-ink:#1d4ed8; --accent-soft:#eff4ff;
+    --ok:#0f8a5f; --warn:#b45309; --err:#d92d20;
+    --radius:12px; --radius-sm:8px;
+    --shadow:0 1px 2px rgba(16,24,40,.04), 0 2px 8px rgba(16,24,40,.05);
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased}
+  button{font:inherit;color:inherit}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:#cfd6df;border-radius:6px;border:2px solid transparent;background-clip:content-box}
+  ::-webkit-scrollbar-thumb:hover{background:#b8c1cd;background-clip:content-box}
+  ::-webkit-scrollbar-track{background:transparent}
+
+  /* ---------------- 顶栏 ---------------- */
+  .topbar{display:flex;align-items:center;gap:14px;padding:0 22px;height:60px;
+    background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:30}
+  .brand{display:flex;align-items:center;gap:11px;min-width:0}
+  .logo{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;
+    background:linear-gradient(145deg,#2563eb,#1e40af);color:#fff;font-size:16px;
+    box-shadow:0 2px 6px rgba(37,99,235,.3)}
+  .brand b{display:block;font-size:14.5px;letter-spacing:.2px}
+  .brand small{display:block;color:var(--text-3);font-size:11.5px;margin-top:-1px}
+  .topbar .spacer{flex:1}
+  .pill{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;
+    border-radius:20px;background:#f2f4f7;color:var(--text-2);font-size:12px}
+  .pill .dot{width:6px;height:6px;border-radius:50%;background:#98a2b3}
+  .pill.ok{background:#ecfdf3;color:#067647}.pill.ok .dot{background:#12b76a}
+  .pill.bad{background:#fef3f2;color:#b42318}.pill.bad .dot{background:#f04438}
+
+  /* ---------------- 布局 ---------------- */
+  main{display:grid;grid-template-columns:352px minmax(0,1fr);gap:18px;
+    padding:18px 22px 26px;max-width:1680px;margin:0 auto;align-items:start}
+  @media (max-width:1080px){main{grid-template-columns:1fr}}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    box-shadow:var(--shadow);padding:16px;position:sticky;top:78px}
+  @media (max-width:1080px){.panel{position:static}}
+  .panel h2,.sect{font-size:11.5px;font-weight:650;letter-spacing:.08em;color:var(--text-3);
+    text-transform:uppercase;margin:0 0 10px}
+
+  /* ---------------- 上传 ---------------- */
+  .drop{border:1.5px dashed #ccd3dd;border-radius:var(--radius-sm);padding:20px 14px;
+    text-align:center;cursor:pointer;transition:.16s;background:#fcfdff}
+  .drop:hover,.drop.on{border-color:var(--accent);background:var(--accent-soft)}
+  .drop .ico{font-size:20px;line-height:1;color:var(--accent);margin-bottom:6px}
+  .drop b{display:block;font-size:13px}
+  .drop small{color:var(--text-3);font-size:11.5px}
+  .file{display:none;align-items:center;gap:8px;margin-top:10px;padding:8px 10px;
+    background:#f7f9fc;border:1px solid var(--line);border-radius:var(--radius-sm);font-size:12.5px}
+  .file.show{display:flex}
+  .file .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .file .size{color:var(--text-3);font-variant-numeric:tabular-nums}
+  .file .x{cursor:pointer;color:var(--text-3);border:0;background:none;padding:0 2px;font-size:15px}
+  .file .x:hover{color:var(--err)}
+
+  /* ---------------- 表单 ---------------- */
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  label.f{display:block;font-size:11.5px;color:var(--text-2);margin:12px 0 5px}
+  input[type=text],input[type=password],input[type=number],select,textarea{
+    width:100%;height:34px;padding:0 10px;border:1px solid var(--line-strong);
+    border-radius:var(--radius-sm);font:inherit;font-size:13px;background:#fff;color:inherit;
+    transition:.15s}
+  textarea{height:auto;min-height:70px;padding:8px 10px;line-height:1.5;resize:vertical}
+  input:hover,select:hover,textarea:hover{border-color:#c2cad5}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
+    box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+  .check{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text);margin-top:13px}
+  .check input{accent-color:var(--accent)}
+  details.model{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+  details.model summary{cursor:pointer;list-style:none;font-size:12.5px;color:var(--accent-ink);
+    font-weight:600;display:flex;align-items:center;gap:6px}
+  details.model summary::-webkit-details-marker{display:none}
+  details.model summary::before{content:"▸";transition:.15s;display:inline-block}
+  details.model[open] summary::before{transform:rotate(90deg)}
+  .row-actions{display:flex;gap:8px;margin-top:12px}
+
+  button{border:1px solid var(--line-strong);background:#fff;height:34px;padding:0 14px;
+    border-radius:var(--radius-sm);cursor:pointer;font-size:13px;font-weight:500;
+    display:inline-flex;align-items:center;gap:6px;transition:.15s}
+  button:hover{background:#f8fafc;border-color:#c2cad5}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff;
+    box-shadow:0 1px 2px rgba(37,99,235,.25)}
+  button.primary:hover{background:var(--accent-ink)}
+  button.ghost{border-color:transparent;background:transparent;color:var(--text-2)}
+  button.ghost:hover{background:#f2f4f7;color:var(--text)}
+  button:disabled{opacity:.5;cursor:not-allowed;box-shadow:none}
+  .run-row{display:flex;align-items:center;gap:10px;margin-top:16px}
+  .run-row .primary{flex:1;justify-content:center;height:38px;font-size:13.5px}
+  .hint{font-size:11.5px;color:var(--text-3);margin-top:9px;line-height:1.5}
+  .hint.stale{color:#b54708}
+  .hint .linkbtn{margin-left:4px;padding:0;border:0;background:none;cursor:pointer;
+    font:inherit;color:var(--accent);text-decoration:underline}
+  .status{font-size:12.5px;color:var(--text-2);min-height:18px}
+  .spinner{width:13px;height:13px;border:2px solid #d7dee8;border-top-color:var(--accent);
+    border-radius:50%;animation:spin .8s linear infinite;display:inline-block;vertical-align:-2px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .err{margin-top:10px;padding:10px 12px;border-radius:var(--radius-sm);font-size:12.5px;
+    background:#fef3f2;border:1px solid #fecdca;color:#b42318;white-space:pre-wrap}
+
+  /* ---------------- 工作区 ---------------- */
+  .workspace{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    box-shadow:var(--shadow);overflow:hidden;min-height:520px;display:flex;flex-direction:column}
+  .tabs{display:flex;align-items:center;gap:4px;padding:10px 14px 0;border-bottom:1px solid var(--line);
+    background:linear-gradient(#fcfdff,#fff)}
+  .tab{border:0;background:none;height:36px;padding:0 14px;border-radius:8px 8px 0 0;
+    color:var(--text-2);font-size:13px;position:relative;top:1px;border-bottom:2px solid transparent}
+  .tab:hover{background:#f5f7fb;color:var(--text)}
+  .tab.active{color:var(--accent-ink);font-weight:650;border-bottom-color:var(--accent);background:#fff}
+  .tabs .spacer{flex:1}
+  .tabs .meta{font-size:12px;color:var(--text-3);margin-right:6px;font-variant-numeric:tabular-nums}
+  .tabs .dl{display:flex;gap:6px;margin-bottom:8px}
+  .tabs .dl a{font-size:12.5px;text-decoration:none;color:var(--text);border:1px solid var(--line-strong);
+    border-radius:7px;padding:5px 10px;background:#fff}
+  .tabs .dl a:hover{border-color:var(--accent);color:var(--accent-ink)}
+  .pane{display:none;flex:1;min-height:0}
+  .pane.active{display:flex;flex-direction:column}
+
+  /* 概览 */
+  #pane-overview{overflow:auto;padding:16px}
+  .result-head{display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;
+    justify-content:space-between;margin-bottom:6px}
+  .result-head b{font-size:15px}
+  .stage{font-size:11.5px;color:var(--text-3);font-variant-numeric:tabular-nums}
+  .page{border:1px solid var(--line);border-radius:var(--radius-sm);margin-top:12px;overflow:hidden}
+  .page-head{display:flex;align-items:center;gap:9px;padding:10px 12px;background:#fafbfd;
+    border-bottom:1px solid var(--line);font-size:12.5px}
+  .page-head .t{font-weight:600;color:var(--text)}
+  .page-head .grow{flex:1}
+  .tag{font-size:11px;padding:1px 8px;border-radius:20px;background:#eef1f5;color:#4b5563;
+    border:1px solid transparent}
+  .tag.paddleocr_vl{background:#eef4ff;color:#1d4ed8;border-color:#dbe6ff}
+  .tag.wired{background:#ecfdf3;color:#067647;border-color:#d3f8df}
+  .tag.wireless{background:#fffaeb;color:#b54708;border-color:#fedf89}
+  .page-body{display:grid;grid-template-columns:290px minmax(0,1fr);gap:14px;padding:12px}
+  @media (max-width:820px){.page-body{grid-template-columns:1fr}}
+  .page-body img{width:100%;border:1px solid var(--line);border-radius:6px;display:block;background:#fff}
+  .mini{overflow:auto;max-height:340px;border:1px solid var(--line);border-radius:6px}
+  .mini table{border-collapse:collapse;font-size:12px;width:100%}
+  .mini td{border:1px solid #eef1f5;padding:4px 7px;white-space:nowrap;max-width:240px;
+    overflow:hidden;text-overflow:ellipsis}
+  .mini tr:first-child td{background:#f8fafc;font-weight:600}
+  .empty{padding:38px 16px;text-align:center;color:var(--text-3);font-size:13px}
+  .empty .big{font-size:26px;display:block;margin-bottom:8px;opacity:.5}
+
+  /* Excel 视图 */
+  .sheet-tabs{display:flex;gap:2px;padding:8px 12px 0;overflow-x:auto;border-bottom:1px solid var(--line);
+    background:#fafbfd;flex:0 0 auto}
+  .sheet-tab{border:1px solid transparent;border-bottom:0;background:transparent;height:30px;
+    border-radius:7px 7px 0 0;padding:0 12px;font-size:12.5px;color:var(--text-2);white-space:nowrap}
+  .sheet-tab:hover{background:#eef2f8}
+  .sheet-tab.active{background:#fff;border-color:var(--line);border-bottom-color:#fff;
+    color:var(--accent-ink);font-weight:650;position:relative;top:1px}
+  .sheet-wrap{flex:1;min-height:0;overflow:auto;padding:0;background:#fff}
+  table.xl{border-collapse:separate;border-spacing:0;font-size:12.5px;
+    font-variant-numeric:tabular-nums}
+  table.xl th,table.xl td{border-right:1px solid #e8ecf1;border-bottom:1px solid #e8ecf1;
+    padding:4px 8px;vertical-align:middle;white-space:pre-wrap;word-break:break-word}
+  table.xl thead th{position:sticky;top:0;z-index:3;background:#f4f6f9;color:var(--text-3);
+    font-weight:600;font-size:11px;text-align:center;height:24px;padding:0 6px}
+  table.xl .corner{position:sticky;left:0;top:0;z-index:5;background:#eef1f6;width:44px;min-width:44px}
+  table.xl .rowhead{position:sticky;left:0;z-index:2;background:#f4f6f9;color:var(--text-3);
+    font-size:11px;text-align:center;width:44px;min-width:44px;font-weight:500}
+  table.xl td.num{text-align:right}
+  table.xl tbody tr:hover td{background:#fafcff}
+  table.xl td:last-child,table.xl th:last-child{border-right:0}
+  .trunc{margin:0;padding:8px 12px;font-size:12px;color:var(--warn);background:#fffaeb;
+    border-top:1px solid #fedf89}
+
+  /* JSON 视图 */
+  .json-toolbar{display:flex;align-items:center;gap:8px;padding:9px 12px;
+    border-bottom:1px solid var(--line);background:#fafbfd;flex:0 0 auto}
+  .json-toolbar .grow{flex:1}
+  .json-toolbar .cnt{font-size:12px;color:var(--text-3);font-variant-numeric:tabular-nums}
+  .code-wrap{flex:1;min-height:0;display:flex;overflow:auto;background:#fcfdff}
+  .gutter{flex:0 0 auto;padding:12px 8px 30px;text-align:right;color:#b3bcc9;font:12px/1.65 var(--mono);
+    background:#fafbfd;border-right:1px solid var(--line);user-select:none;position:sticky;left:0}
+  pre.json{margin:0;padding:12px 14px 30px;font:12px/1.65 var(--mono);tab-size:2;color:#24292f;
+    flex:1;white-space:pre}
+  .j-key{color:#0550ae}.j-str{color:#0a7d4e}.j-num{color:#b45309}.j-lit{color:#8250df}
+
+  .note{display:none;padding:9px 14px;font-size:12.5px;line-height:1.5;
+    border-bottom:1px solid var(--line)}
+  .note.show{display:block}
+  .note.ok{background:#ecfdf3;color:#067647;border-bottom-color:#d3f8df}
+  .note.warn{background:#fffaeb;color:#b54708;border-bottom-color:#fedf89}
+  .note.err{background:#fef3f2;color:#b42318;border-bottom-color:#fecdca}
+  .note .muted{color:inherit;opacity:.75}
+  .toast{position:fixed;right:20px;bottom:20px;background:#1c2024;color:#fff;padding:9px 14px;
+    border-radius:8px;font-size:12.5px;opacity:0;transform:translateY(8px);transition:.2s;z-index:50}
+  .toast.show{opacity:1;transform:none}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">▦</span>
+    <div><b>财报表格识别</b><small>PDF / 图片 → Excel + JSON</small></div>
+  </div>
+  <div class="spacer"></div>
+  <span class="pill" id="svcPill"><span class="dot"></span>模型服务未探测</span>
+  <span class="pill" id="cfgPill"><span class="dot"></span>读取配置…</span>
+</header>
+
+<main>
+  <!-- ================= 左：输入 ================= -->
+  <aside class="panel">
+    <h2>输入</h2>
+    <div class="drop" id="drop">
+      <div class="ico">⇪</div>
+      <b>点击选择，或把文件拖进来</b>
+      <small>PDF / PNG / JPG / BMP / TIFF，≤ 60MB</small>
+      <input type="file" id="file" hidden accept=".pdf,.png,.jpg,.jpeg,.bmp,.tif,.tiff,.webp">
+    </div>
+    <div class="file" id="fileBox">
+      <span class="name" id="fileName"></span>
+      <span class="size" id="fileSize"></span>
+      <button class="x" id="fileClear" title="移除">×</button>
+    </div>
+
+    <div class="grid2">
+      <div>
+        <label class="f" for="backend">识别后端</label>
+        <select id="backend">
+          <option value="legacy">legacy · 本地 ONNX（快，准确率低）</option>
+          <option value="paddleocr_vl">paddleocr_vl · PaddleOCR-VL（准，需服务在线）</option>
+        </select>
+      </div>
+      <div>
+        <label class="f" for="pages">页范围（PDF）</label>
+        <input type="text" id="pages" placeholder="全部，如 114-116">
+      </div>
+    </div>
+    <div class="grid2">
+      <div>
+        <label class="f" for="dpi">渲染 DPI</label>
+        <input type="number" id="dpi" min="100" max="400" step="10" placeholder="200">
+      </div>
+      <div>
+        <label class="f">预处理</label>
+        <div class="check" style="margin-top:6px">
+          <input type="checkbox" id="preprocess" checked>
+          <label for="preprocess" style="margin:0;font-size:12.5px;color:var(--text)">倾斜 / 翻转矫正</label>
+        </div>
+      </div>
+    </div>
+
+    <details class="model" id="modelBox">
+      <summary>PaddleOCR-VL 参数</summary>
+      <label class="f" for="base_url">base_url</label>
+      <input type="text" id="base_url" placeholder="http://127.0.0.1:8000/v1">
+      <label class="f" for="model">model</label>
+      <input type="text" id="model" placeholder="服务端 /v1/models 的 id">
+      <label class="f" for="api_key">api_key</label>
+      <input type="password" id="api_key" placeholder="留空用 config.yaml">
+      <div class="grid2">
+        <div><label class="f" for="max_tokens">max_tokens</label>
+          <input type="number" id="max_tokens" min="512" step="256"></div>
+        <div><label class="f" for="temperature">temperature</label>
+          <input type="number" id="temperature" min="0" max="1" step="0.1"></div>
+      </div>
+      <div class="grid2">
+        <div><label class="f" for="timeout">timeout（秒）</label>
+          <input type="number" id="timeout" min="10" step="10"></div>
+        <div><label class="f" for="max_side">max_side</label>
+          <input type="number" id="max_side" min="400" step="100"></div>
+      </div>
+      <label class="f" for="prompt">prompt</label>
+      <textarea id="prompt" placeholder="识别这张表格，输出 HTML <table>…"></textarea>
+      <div class="row-actions">
+        <button id="probe" type="button">探测服务</button>
+        <button id="reset" type="button">恢复默认</button>
+      </div>
+      <div class="hint" id="probeOut"></div>
+    </details>
+
+    <div class="run-row">
+      <button class="primary" id="run" disabled>开始识别</button>
+      <span class="status" id="status"></span>
+    </div>
+    <div id="error"></div>
+    <div class="hint" id="cfgHint"></div>
+    <div class="hint">参数只用于本次请求，不写回 config.yaml；启停服务用 tools/serve_model.sh。</div>
+  </aside>
+
+  <!-- ================= 右：结果 ================= -->
+  <section class="workspace">
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="overview" role="tab">概览</button>
+      <button class="tab" data-tab="excel" role="tab">Excel</button>
+      <button class="tab" data-tab="json" role="tab">JSON</button>
+      <div class="spacer"></div>
+      <div class="meta" id="runMeta"></div>
+      <div class="dl" id="downloads"></div>
+    </div>
+    <div class="note" id="engineNote"></div>
+
+    <div class="pane active" id="pane-overview">
+      <div class="empty"><span class="big">▦</span>选择文件后点「开始识别」，结果会在这里展示</div>
+    </div>
+
+    <div class="pane" id="pane-excel">
+      <div class="sheet-tabs" id="sheetTabs"></div>
+      <div class="sheet-wrap" id="sheetWrap">
+        <div class="empty">还没有结果</div>
+      </div>
+    </div>
+
+    <div class="pane" id="pane-json">
+      <div class="json-toolbar">
+        <button class="ghost" id="jsonCopy" type="button">复制</button>
+        <button class="ghost" id="jsonWrap" type="button">自动换行：开</button>
+        <div class="grow"></div>
+        <span class="cnt" id="jsonCount"></span>
+      </div>
+      <div class="code-wrap">
+        <div class="gutter" id="gutter"></div>
+        <pre class="json" id="jsonPre">识别完成后，这里显示完整 JSON（全文，不截断）</pre>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const FIELDS = ["base_url","model","api_key","max_tokens","temperature",
+                "timeout","max_side","prompt","pages","dpi","backend"];
+const $ = (id) => document.getElementById(id);
+const state = {file: null, run: null, sheets: null, jsonText: null, tab: "overview",
+               sheetIndex: 0, wrap: true, busy: false, timer: null};
+
+/* ------------------------------------------------ 工具 */
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => (
+    {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+function fmtSize(n){
+  return n > 1048576 ? (n/1048576).toFixed(1) + " MB" : (n/1024).toFixed(0) + " KB";
+}
+function toast(msg){
+  const el = $("toast");
+  el.textContent = msg; el.classList.add("show");
+  setTimeout(() => el.classList.remove("show"), 1600);
+}
+const STAGE = {render:"渲染", detect:"文字检测", preprocess:"矫正", layout:"版面",
+               table:"表格", model:"PaddleOCR-VL", ocr:"文字识别", post:"后处理", export:"导出"};
+const KIND_NAME = {paddleocr_vl:"PaddleOCR-VL", wired:"本地 ONNX · wired", wireless:"本地 ONNX · wireless"};
+const kindName = (k) => KIND_NAME[k] || k;
+function setNote(kind, html){
+  const el = $("engineNote");
+  if (!kind || !html){ el.className = "note"; el.innerHTML = ""; return; }
+  el.className = "note show " + kind;
+  el.innerHTML = html;
+}
+const ORDER = ["render","detect","preprocess","layout","table","model","ocr","post","export"];
+function stageText(t){
+  if (!t) return "";
+  return ORDER.filter(k => t[k]).map(k =>
+    `${STAGE[k] || k} ${(t[k]/1000).toFixed(2)}s`).join(" · ");
+}
+
+/* ------------------------------------------------ 模型服务状态 */
+function svcPill(kind, text){
+  const el = $("svcPill");
+  el.className = "pill" + (kind === "ok" ? " ok" : kind === "bad" ? " bad" : "");
+  el.innerHTML = `<span class="dot"></span>${text}`;
+}
+async function checkService(){
+  if ($("backend").value !== "paddleocr_vl"){
+    setNote("", ""); state.serviceOk = null;
+    svcPill("", "legacy 本地链路");
+    return null;
+  }
+  const url = $("base_url").value.trim();
+  if (!url){
+    setNote("warn", "没填 base_url，跑起来会退回本地 ONNX");
+    svcPill("bad", "模型服务未配置");
+    state.serviceOk = false; return false;
+  }
+  svcPill("", "模型服务探测中…");
+  const qs = new URLSearchParams({base_url: url, api_key: $("api_key").value || ""});
+  try{
+    const d = await (await fetch("/api/probe?" + qs)).json();
+    state.serviceOk = !!d.ok;
+    if (d.ok){
+      const ids = (d.models || []).join("、");
+      setNote("ok", `模型服务可达：${ids || "（未返回模型列表）"}`);
+      svcPill("ok", `模型服务可达${ids ? " · " + ids : ""}`);
+    } else {
+      setNote("warn", `模型服务不可达：${escapeHtml(d.error || "")}。现在跑会退回本地 ONNX，准确率会明显下降。`);
+      svcPill("bad", "模型服务不可达");
+    }
+  }catch(e){
+    state.serviceOk = false;
+    setNote("warn", "模型服务探测失败：" + escapeHtml(String(e)));
+    svcPill("bad", "模型服务探测失败");
+  }
+  return state.serviceOk;
+}
+
+/* ------------------------------------------------ 设置持久化 */
+// config.yaml 是唯一基准：打开页面先用配置值，再叠加"用户真的改过的项"。
+// 旧版本把整份表单存在 focr.settings 里，换模型后旧值会反过来盖掉配置
+// （曾经把 deepseek-flash 的地址/提示词盖在 PaddleOCR-VL 面板上），所以换键 + 清残留。
+const SETTINGS_KEY = "focr.settings.v2";
+// 这些是"模型参数"输入框的 id，默认值一律取 config.yaml 的 tablerec.paddleocr_vl
+const MODEL_FIELDS = ["base_url", "model", "prompt",
+                      "max_tokens", "temperature", "timeout", "max_side"];
+let CFG = null;
+
+function saveLocal(){
+  const data = {};
+  for (const k of FIELDS){ if (k === "api_key") continue; data[k] = $(k) ? $(k).value : ""; }
+  data.preprocess = $("preprocess").checked;
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(data));
+}
+function loadLocal(){
+  try{ return JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}"); }catch(e){ return {}; }
+}
+function fill(id, value){
+  $(id).value = (value === undefined || value === null) ? "" : value;
+}
+function norm(value){ return String(value === undefined || value === null ? "" : value).trim(); }
+
+function fillFromConfig(cfg, saved){
+  const v = cfg.model || {};
+  $("backend").value = (saved && saved.backend) || cfg.backend || "legacy";
+  fill("dpi", (saved && saved.dpi) || cfg.dpi);
+  for (const id of MODEL_FIELDS){
+    const s = saved ? saved[id] : undefined;
+    // 没存过 / 存的是空串 → 用配置值；存过就用用户上次填的
+    fill(id, (s === undefined || s === "") ? v[id] : s);
+  }
+  $("api_key").placeholder = cfg.has_api_key ? "已配置，留空即用它" : "服务要鉴权就填";
+}
+
+/* 哪些模型参数和 config.yaml 不一致（被手动改过，或来自旧缓存） */
+function staleFields(cfg){
+  const v = cfg.model || {};
+  return MODEL_FIELDS.filter(id => norm($(id).value) !== norm(v[id]));
+}
+
+function renderCfgHint(cfg){
+  const el = $("cfgHint");
+  if (!el) return;
+  const v = (cfg && cfg.model) || {};
+  if (!cfg){ el.className = "hint"; el.innerHTML = ""; return; }
+  const stale = staleFields(cfg);
+  if (!stale.length){
+    el.className = "hint";
+    el.innerHTML = `参数与 config.yaml 一致：${escapeHtml(String(v.model || "未配模型"))}`
+      + ` @ ${escapeHtml(String(v.base_url || ""))}`;
+    return;
+  }
+  el.className = "hint stale";
+  el.innerHTML = `⚠ ${stale.length} 项与 config.yaml 不同：<b>${stale.join("、")}</b>`
+    + `<button type="button" class="linkbtn" id="useCfg">改回配置值</button>`;
+  const btn = el.querySelector("#useCfg");
+  if (btn) btn.onclick = () => useCfgValues();
+}
+
+/* 全部恢复成 config.yaml 的值（清掉本地记忆，不刷新页面） */
+function useCfgValues(){
+  if (!CFG) return;
+  localStorage.removeItem(SETTINGS_KEY);
+  fillFromConfig(CFG, null);
+  fill("pages", "");
+  $("preprocess").checked = true;
+  renderCfgHint(CFG);
+  checkService();
+}
+
+async function init(){
+  let cfg = null;
+  try{ cfg = await (await fetch("/api/config")).json(); }catch(e){}
+  CFG = cfg;
+  if (cfg){
+    // 清掉旧版本的残留：它存的是别的模型的地址和提示词，会盖住配置
+    localStorage.removeItem("focr.settings");
+    const saved = loadLocal();
+    fillFromConfig(cfg, saved);
+    $("cfgPill").className = "pill";
+    $("cfgPill").innerHTML = `<span class="dot" style="background:#12b76a"></span>配置已加载 · ${cfg.backend}`;
+    fill("pages", saved.pages || "");
+    $("preprocess").checked = saved.preprocess !== false;
+    renderCfgHint(cfg);
+  } else {
+    $("cfgPill").innerHTML = `<span class="dot" style="background:#f04438"></span>配置读取失败`;
+  }
+  if ($("backend").value === "paddleocr_vl") $("modelBox").open = true;
+  syncTabs();
+  checkService();
+  restoreFromUrl();
+}
+
+// 手改任一模型参数就重新标一次"与配置不同的项"
+for (const id of MODEL_FIELDS){
+  if ($(id)) $(id).addEventListener("input", () => renderCfgHint(CFG));
+}
+
+/* ------------------------------------------------ 文件 */
+const drop = $("drop");
+drop.addEventListener("click", () => $("file").click());
+["dragenter","dragover"].forEach(ev => drop.addEventListener(ev, e => {
+  e.preventDefault(); drop.classList.add("on");
+}));
+["dragleave","drop"].forEach(ev => drop.addEventListener(ev, e => {
+  e.preventDefault(); drop.classList.remove("on");
+}));
+drop.addEventListener("drop", e => { if (e.dataTransfer.files[0]) pick(e.dataTransfer.files[0]); });
+$("file").addEventListener("change", () => { if ($("file").files[0]) pick($("file").files[0]); });
+$("fileClear").addEventListener("click", e => {
+  e.stopPropagation(); state.file = null; $("file").value = "";
+  $("fileBox").classList.remove("show"); $("run").disabled = true;
+});
+function pick(f){
+  state.file = f;
+  $("fileName").textContent = f.name;
+  $("fileSize").textContent = fmtSize(f.size);
+  $("fileBox").classList.add("show");
+  $("run").disabled = false;
+  $("error").innerHTML = "";
+}
+
+/* ------------------------------------------------ 探测 */
+$("probe").addEventListener("click", async () => {
+  const out = $("probeOut"), url = $("base_url").value.trim();
+  if (!url){ out.textContent = "先填 base_url"; return; }
+  out.innerHTML = '<span class="spinner"></span> 探测中…';
+  try{
+    const qs = new URLSearchParams({base_url: url, api_key: $("api_key").value || ""});
+    const d = await (await fetch("/api/probe?" + qs)).json();
+    if (d.ok){
+      out.innerHTML = `<span style="color:var(--ok)">✓ 服务可达</span>　可用模型：${(d.models||[]).join("、") || "（未返回列表）"}`;
+      $("svcPill").className = "pill ok";
+      $("svcPill").innerHTML = `<span class="dot"></span>模型服务可达`;
+    } else {
+      out.innerHTML = `<span style="color:var(--err)">✗ 不可达</span>　${escapeHtml(d.error||"")}`;
+      $("svcPill").className = "pill bad";
+      $("svcPill").innerHTML = `<span class="dot"></span>模型服务不可达`;
+    }
+  }catch(e){ out.textContent = "探测失败：" + e; }
+});
+$("reset").addEventListener("click", () => useCfgValues());
+$("backend").addEventListener("change", () => {
+  if ($("backend").value === "paddleocr_vl") $("modelBox").open = true;
+  checkService();
+});
+
+/* ------------------------------------------------ 运行 */
+$("run").addEventListener("click", async () => {
+  if (!state.file || state.busy) return;
+  saveLocal();
+  const fd = new FormData();
+  fd.append("file", state.file);
+  for (const k of FIELDS){
+    if (k === "backend") continue;
+    if (k === "api_key"){ if ($(k).value.trim()) fd.append(k, $(k).value.trim()); continue; }
+    if ($(k).value.trim()) fd.append(k, $(k).value.trim());
+  }
+  fd.append("backend", $("backend").value);
+  fd.append("preprocess", $("preprocess").checked ? "1" : "0");
+
+  setBusy(true);
+  const t0 = Date.now();
+  state.timer = setInterval(() => {
+    $("status").innerHTML =
+      `<span class="spinner"></span> 识别中 ${((Date.now()-t0)/1000).toFixed(0)}s`;
+  }, 500);
+  $("error").innerHTML = "";
+  try{
+    const resp = await fetch("/api/run", {method: "POST", body: fd});
+    let data;
+    try { data = await resp.json(); } catch(e){ data = {}; }
+    if (!resp.ok) throw new Error(data.error || resp.statusText || ("HTTP " + resp.status));
+    applyRun(data, "overview");
+  }catch(e){
+    $("error").innerHTML = `<div class="err">${escapeHtml(String(e.message || e))}</div>`;
+  }finally{
+    clearInterval(state.timer);
+    setBusy(false);
+  }
+});
+
+function applyRun(data, tab){
+  state.run = data; state.sheets = null; state.jsonText = null; state.sheetIndex = 0;
+  $("error").innerHTML = "";
+  renderOverview(data); renderDownloads(data); renderEngine(data);
+  switchTab(tab || "overview");
+}
+
+/* 刷新/分享后还能看到结果：/?job=<id>&tab=json */
+async function restoreFromUrl(){
+  const qs = new URLSearchParams(location.search);
+  const job = (qs.get("job") || "").trim();
+  if (!job || !/^[\w.\-]+$/.test(job)) return false;
+  try{
+    const resp = await fetch(`/api/summary/${job}`);
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || ("HTTP " + resp.status));
+    applyRun(data, (qs.get("tab") || "overview").toLowerCase());
+    return true;
+  }catch(e){
+    $("error").innerHTML = `<div class="err">打开结果失败：${escapeHtml(String(e.message || e))}</div>`;
+    return false;
+  }
+}
+
+function setBusy(busy){
+  state.busy = busy;
+  $("run").disabled = busy || !state.file;
+  $("run").textContent = busy ? "识别中…" : "开始识别";
+  if (!busy) $("status").innerHTML = "";
+}
+
+/* ------------------------------------------------ Tab */
+document.querySelectorAll(".tab").forEach(btn => {
+  btn.addEventListener("click", () => switchTab(btn.dataset.tab));
+});
+function switchTab(name){
+  state.tab = name;
+  document.querySelectorAll(".tab").forEach(b =>
+    b.classList.toggle("active", b.dataset.tab === name));
+  document.querySelectorAll(".pane").forEach(p =>
+    p.classList.toggle("active", p.id === "pane-" + name));
+  if (!state.run) return;
+  if (name === "excel" && !state.sheets) loadSheets();
+  if (name === "json" && state.jsonText === null) loadJson();
+}
+function syncTabs(){
+  document.querySelectorAll(".tab").forEach(b => {
+    b.disabled = !state.run && b.dataset.tab !== "overview";
+  });
+}
+
+/* ------------------------------------------------ 下载区 */
+function renderDownloads(d){
+  const o = d.outputs || {};
+  $("downloads").innerHTML = `
+    <a href="${o.json}" download>下载 JSON</a>
+    <a href="${o.xlsx}" download>下载 Excel</a>`;
+  const kinds = (d.engine || {}).kinds || {};
+  const parts = Object.keys(kinds).map(k => `${kindName(k)}×${kinds[k]}`).join(" · ");
+  $("runMeta").textContent =
+    `${d.pages.length} 页 · ${d.pages.reduce((s,p)=>s+p.table_count,0)} 表 · ${d.elapsed}s`
+    + (parts ? ` · ${parts}` : "");
+  syncTabs();
+}
+
+/* 明确告诉用户：这次到底是模型跑的，还是退回了本地链路 */
+function renderEngine(d){
+  const e = d.engine || {}, kinds = e.kinds || {};
+  const parts = Object.keys(kinds).map(k => `${kindName(k)} × ${kinds[k]}`).join(" · ");
+  if (e.fallback_count > 0){
+    const reason = (e.fallbacks && e.fallbacks[0] && e.fallbacks[0].reason) || "";
+    setNote("err", `⚠ 有 ${e.fallback_count} 张表退回了本地 ONNX —— PaddleOCR-VL 没跑起来，`
+      + `这部分结果质量会差一档。<br><span class="muted">${escapeHtml(reason)}</span>`);
+  } else if (e.requested === "paddleocr_vl" && kinds.paddleocr_vl){
+    setNote("ok", `实际引擎：${parts}（PaddleOCR-VL 确实跑了）`);
+  } else if (e.requested === "legacy"){
+    setNote("", "");
+  }
+}
+
+/* ------------------------------------------------ 概览 */
+function renderOverview(d){
+  const totalCell = d.pages.reduce((s,p) => s + p.tables.reduce((x,t)=>x+t.cells,0), 0);
+  const head = `
+    <div class="result-head">
+      <div><b>${escapeHtml(d.doc)}</b>
+        <span class="stage">　${d.pages.length} 页 · ${totalCell} 格 · 后端 ${d.backend} · 总耗时 ${d.elapsed}s</span>
+        <div class="stage">${stageText(d.timings)}</div>
+      </div>
+      <div class="stage">JSON 与 Excel 已生成，可用上方标签切换完整查看</div>
+    </div>`;
+
+  const pages = d.pages.map((p, idx) => {
+    const tags = p.tables.map(t =>
+      `<span class="tag ${t.kind}">${kindName(t.kind)} · ${t.rows}×${t.cols}</span>`).join(" ");
+    const tables = p.tables.length
+      ? p.tables.map(t => `
+        <div class="stage" style="margin-bottom:6px">
+          ${t.rows} 行 × ${t.cols} 列 · ${t.cells} 格（此处为前 ${Math.min(t.preview.length,8)} 行，
+          完整内容看 Excel 标签）</div>
+        <div class="mini"><table>
+          ${t.preview.map(r => `<tr>${r.map(c=>`<td>${escapeHtml(c)}</td>`).join("")}</tr>`).join("")}
+        </table></div>`).join("")
+      : `<div class="empty">这一页没有表格，只有 ${p.char_count} 个文字块</div>`;
+
+    return `
+      <div class="page">
+        <div class="page-head">
+          <span class="t">第 ${p.page} 页</span>
+          <span class="stage">${p.width}×${p.height}</span>
+          ${tags}
+          <span class="grow"></span>
+          <span class="stage">${p.elapsed}s</span>
+          <button class="ghost" data-jump="${idx}" style="height:26px;padding:0 8px;font-size:12px">
+            在 Excel 中查看</button>
+        </div>
+        <div class="page-body">
+          <div>${p.thumb ? `<img src="${p.thumb}" alt="第 ${p.page} 页">` : ""}</div>
+          <div>${tables}</div>
+        </div>
+      </div>`;
+  }).join("");
+
+  $("pane-overview").innerHTML = head + pages;
+  $("pane-overview").querySelectorAll("[data-jump]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      state.sheetIndex = Number(btn.dataset.jump);
+      switchTab("excel");
+      if (state.sheets) renderSheet(state.sheetIndex);
+    });
+  });
+}
+
+/* ------------------------------------------------ Excel */
+async function loadSheets(){
+  $("sheetWrap").innerHTML = '<div class="empty"><span class="spinner"></span> 读取 Excel…</div>';
+  try{
+    const resp = await fetch(state.run.outputs.sheets);
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || "读取失败");
+    state.sheets = data.sheets || [];
+    renderSheetTabs();
+    renderSheet(Math.min(state.sheetIndex, state.sheets.length - 1));
+  }catch(e){
+    $("sheetWrap").innerHTML = `<div class="empty">读 Excel 失败：${escapeHtml(String(e.message||e))}</div>`;
+  }
+}
+function renderSheetTabs(){
+  $("sheetTabs").innerHTML = state.sheets.map((s, i) =>
+    `<button class="sheet-tab ${i === state.sheetIndex ? "active" : ""}" data-sheet="${i}">
+       ${escapeHtml(s.name)}</button>`).join("");
+  $("sheetTabs").querySelectorAll("[data-sheet]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      state.sheetIndex = Number(btn.dataset.sheet);
+      renderSheetTabs(); renderSheet(state.sheetIndex);
+    });
+  });
+}
+function colName(n){
+  let s = "";
+  while (n > 0){ const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); }
+  return s;
+}
+function sheetHtml(sheet){
+  const covered = new Set(), anchor = new Map();
+  for (const [r1,c1,r2,c2] of (sheet.merges || [])){
+    anchor.set(r1 + "," + c1, [r2 - r1 + 1, c2 - c1 + 1]);
+    for (let r = r1; r <= r2; r++)
+      for (let c = c1; c <= c2; c++)
+        if (!(r === r1 && c === c1)) covered.add(r + "," + c);
+  }
+  const rows = sheet.rows || [];
+  const nCols = Math.max(sheet.widths ? sheet.widths.length : 0,
+                         ...rows.map(r => r.length), 1);
+  const widths = sheet.widths || [];
+  const colStyle = (i) => {
+    const w = widths[i];
+    return w ? `min-width:${Math.max(58, Math.min(360, Math.round(w * 8)))}px` : "";
+  };
+  const head = `<tr><th class="corner"></th>${Array.from({length: nCols}, (_, i) =>
+    `<th style="${colStyle(i)}">${colName(i + 1)}</th>`).join("")}</tr>`;
+
+  const body = rows.map((row, ri) => {
+    const r = ri + 1;
+    let cells = "";
+    for (let c = 1; c <= nCols; c++){
+      if (covered.has(r + "," + c)) continue;
+      const span = anchor.get(r + "," + c);
+      const rs = span ? span[0] : 1, cs = span ? span[1] : 1;
+      const v = row[c - 1];
+      const text = (v === undefined || v === null) ? "" : String(v);
+      const cls = typeof v === "number" || /^-?[\d,]+(\.\d+)?%?$/.test(text.trim()) ? "num" : "";
+      cells += `<td class="${cls}"${rs > 1 ? ` rowspan="${rs}"` : ""}${
+        cs > 1 ? ` colspan="${cs}"` : ""}>${escapeHtml(text)}</td>`;
+    }
+    return `<tr><th class="rowhead">${r}</th>${cells}</tr>`;
+  }).join("");
+
+  return `<table class="xl"><thead>${head}</thead><tbody>${body}</tbody></table>`
+    + (sheet.truncated ? '<div class="trunc">行数太多，只显示前 3000 行</div>' : "");
+}
+function renderSheet(index){
+  if (!state.sheets || !state.sheets.length){
+    $("sheetWrap").innerHTML = '<div class="empty">这份结果没有工作表</div>';
+    return;
+  }
+  const sheet = state.sheets[index];
+  $("sheetWrap").innerHTML = sheetHtml(sheet);
+  $("sheetWrap").scrollTop = 0;
+  $("sheetWrap").scrollLeft = 0;
+}
+
+/* ------------------------------------------------ JSON */
+function highlightJson(raw){
+  const re = /("(?:\\.|[^"\\])*")(\s*:)?|(-?\d+(?:\.\d+)?(?:[eE][+\-]?\d+)?)|\b(true|false|null)\b/g;
+  let out = "", last = 0, m;
+  while ((m = re.exec(raw))){
+    out += escapeHtml(raw.slice(last, m.index));
+    if (m[1] !== undefined){
+      const isKey = !!m[2];
+      out += `<span class="${isKey ? "j-key" : "j-str"}">${escapeHtml(m[1])}</span>`
+           + (m[2] ? escapeHtml(m[2]) : "");
+    } else if (m[3] !== undefined){
+      out += `<span class="j-num">${escapeHtml(m[3])}</span>`;
+    } else {
+      out += `<span class="j-lit">${escapeHtml(m[0])}</span>`;
+    }
+    last = re.lastIndex;
+  }
+  return out + escapeHtml(raw.slice(last));
+}
+async function loadJson(){
+  const out = (state.run && state.run.outputs) || {};
+  if (!out.doc){
+    $("jsonPre").textContent = "先上传一次并识别完成，这里才会有 JSON";
+    $("jsonCount").textContent = "";
+    return;
+  }
+  $("jsonPre").textContent = "读取中…";
+  try{
+    const resp = await fetch(out.doc);
+    const text = await resp.text();
+    if (!resp.ok) throw new Error(text.slice(0, 200));
+    state.jsonText = text;
+    const lines = text.split("\n");
+    $("gutter").textContent = lines.map((_, i) => i + 1).join("\n");
+    // 全文照显示；只有特别大（>4MB）时才关掉高亮，避免浏览器卡住
+    $("jsonPre").innerHTML = text.length > 4 * 1024 * 1024
+      ? escapeHtml(text)
+      : lines.map(l => highlightJson(l)).join("\n");
+    $("jsonCount").textContent =
+      `${lines.length} 行 · ${(new Blob([text]).size / 1024).toFixed(0)} KB`;
+    applyWrap();
+    if (!$("jsonPre").innerHTML.trim()) $("jsonPre").textContent = "（这份结果没有内容）";
+  }catch(e){
+    $("jsonPre").textContent = "读 JSON 失败：" + (e.message || e);
+    $("jsonCount").textContent = "";
+    console.error("读 JSON 失败", e, out.doc);
+  }
+}
+function applyWrap(){
+  $("jsonPre").style.whiteSpace = state.wrap ? "pre-wrap" : "pre";
+  $("jsonPre").style.wordBreak = state.wrap ? "break-word" : "normal";
+  $("jsonWrap").textContent = "自动换行：" + (state.wrap ? "开" : "关");
+}
+$("jsonWrap").addEventListener("click", () => { state.wrap = !state.wrap; applyWrap(); });
+$("jsonCopy").addEventListener("click", async () => {
+  if (!state.jsonText) return;
+  try{ await navigator.clipboard.writeText(state.jsonText); toast("已复制 JSON"); }
+  catch(e){ toast("复制失败，请手动选择"); }
+});
+
+init();
+</script>
+</body>
+</html>

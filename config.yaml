@@ -1,0 +1,131 @@
+# financial_ocr 全部可调参数。改这里，不要改代码。
+# 相对路径一律相对项目根目录（financial_ocr/）。
+
+paths:
+  data: data
+  work: work
+  out: out
+
+# ---------------------------------------------------------------- PDF → 图片
+render:
+  dpi: 200              # 出图分辨率；财报正文一般 200 够 OCR
+
+# ---------------------------------------------------------------- 文字检测
+# PP-OCR：det 出旋转框，cls 判单行 0/180。都用 cv2.dnn 跑 ONNX，无需 onnxruntime
+textdet:
+  model_dir: models/ppocr
+  det_model: PP-OCRv6_det_small.onnx
+  cls_model: ch_PP-LCNet_x0_25_textline_ori_cls_mobile.onnx
+  limit_side: 960               # 检测时长边上限
+  thresh: 0.3                   # 概率图二值化阈值
+  box_thresh: 0.35              # 框内平均分下限（页面旋转后置信度会下降，别设太高）
+  unclip_ratio: 1.6             # 框外扩比例（用膨胀近似）
+  min_size: 3                   # 框最短边下限（像素）
+  # 文字识别（CTC），缺模型时自动降级为只检测
+  rec_dir: models/ocr
+  rec_model: PP-OCRv6_rec_small.onnx
+  rec_dict: ppocrv6_dict.txt
+
+# ---------------------------------------------------------------- 预处理
+preprocess:
+  skip_skew: false              # 跳过倾斜矫正
+  skip_flip: false              # 跳过 180° 翻转
+
+  # 倾斜矫正：带方向的检测框 → 估整页倾角 → 旋转（覆盖 0~180°）
+  angle:
+    top_k: 8                    # 用最长的多少条文本估角
+    min_length: 60              # 太短的框不参与（像素）
+    min_angle: 0.15             # 小于此角度不转（避免无意义重采样）
+    residual_min: 0.25          # 粗转后残差小于它就不做二次旋转（残差有 ±0.2 抖动）
+    refine_span: 2.5            # 粗转后框内精修搜索半径 ±度
+    refine_step: 0.1            # 精修步长
+
+  # 180° 翻转：cls 对长文本行投票
+  flip:
+    threshold: 0.5              # 倒置概率中位数超过它就翻
+    max_boxes: 12               # 拿最长的多少行投票
+    verify: true                # 翻完再测一次，没改善就不翻
+
+# ---------------------------------------------------------------- 版面
+# PP-DocLayoutV3：只取表格类（id 21），给表格结构模型提供裁图框
+layout:
+  model: layout/pp_doc_layoutv3.onnx
+  score_thresh: 0.5
+  margin: 8                   # 裁图外扩像素，防止切掉表格线
+  # 低分候选的救回：又宽又扁、大量留白的权益变动表 / 现金流量表只给 0.37~0.39
+  # （p133 / p135 实测），按 0.5 卡会整张表丢失。低于 score_thresh 但高于
+  # recover_thresh 的框，再用"文字排布"复核：行数够多、列数够多才采纳。
+  recover_thresh: 0.32
+  recover_min_lines: 5        # 框内至少几行文字
+  recover_min_cols: 3         # 至少几个不同的左边缘（列）
+
+# ---------------------------------------------------------------- 资源保护
+# 目标只有一个：**进程永远不被 OOM 杀掉**。余量不够就拒掉单个请求（429/503），
+# 服务本身继续活着；任务进行中涨太猛就中止这一单，绝不等到内核来杀。
+guard:
+  max_upload_mb: 60          # 单文件上限；边收边落盘，超了立刻断
+  max_pages: 60              # 一次最多处理多少页（PDF 请用页范围分批）
+  max_page_pixels: 40000000  # 单页像素上限，超了先等比缩小（约 40MP，BGR ≈120MB）
+  min_free_mb: 1200          # 开工前系统可用内存下限
+  min_gpu_free_mb: 1024      # 显存余量下限；低于它不往 GPU 送
+  max_rss_mb: 4096           # 单任务自身常驻内存上限，超了主动中止这一单
+  max_inflight: 1            # 同时在跑的任务数（ONNX/GPU 不能并行）
+  max_pending: 4             # 排队上限；满了直接 429，不让请求堆着吃内存
+  queue_timeout_s: 30        # 排队等待上限
+  max_conns: 32              # 同时保持的连接数上限（再多直接 503）
+  keep_hours: 24             # 任务产物保留时长
+  max_work_mb: 4096          # work/web 总大小上限，超了从最旧的开始删
+
+# ---------------------------------------------------------------- 表格识别后端
+# legacy        : 本地 ONNX（有线 unet / 无线读光）+ PP-OCR 逐格识别。离线可跑。
+# paddleocr_vl  : 表格裁图交给 PaddleOCR-VL（本机 vLLM 起的 OpenAI 兼容服务），
+#                 结构与文字一次出，本地结构模型和逐格 OCR 都不参与
+#                 （版面找表仍是本地 PP-DocLayoutV3）。实测准确率明显高于 legacy。
+tablerec:
+  backend: paddleocr_vl        # legacy | paddleocr_vl
+  fallback_legacy: true        # 单张表失败退回本地链路（真兜底）
+  paddleocr_vl:
+    base_url: http://127.0.0.1:8000/v1   # 本地 vLLM（bash tools/serve_model.sh）
+    model: "PaddleOCR-VL"                 # 服务端 /v1/models 里的 id
+    api_key: EMPTY                        # 本地 vLLM 不校验；接了要鉴权的服务再填
+    prompt: "Table Recognition:"          # PaddleOCR-VL 的任务词，见 README
+    max_tokens: 8192
+    temperature: 0.0             # 识别任务要稳定，别调高
+    timeout: 180                 # 单张大表几十秒，别设太短
+    retries: 2                   # 只对 408/429/5xx/连不上重试
+    max_side: 1600               # 送模型前长边上限，过大只白烧 token
+    # 下面三条是"模型侧也不能失败"的保险：
+    max_pixels: 2560000          # 单图上限（≈1600×1600）；超了再缩，避免撑爆上下文/显存
+    total_timeout: 300           # 单张表的总时间预算（含重试与重问），到点直接兜底
+    shrink_attempts: 2           # 服务端报"上下文超长"时自动缩小重发几次
+    # 输出不合格（认不出格式 / 网格冲突空洞）时换提示词重问几次。
+    # temperature=0 时同一提示词只会复现同一个错，所以必须换提示词。
+    repair_attempts: 1
+    repair_prompt: "只输出 <table>…</table>，不要解释、不要代码围栏；每个 <td> 都要写结束标签，行列数与图片完全一致。"
+
+# ---------------------------------------------------------------- 表格结构
+# 有线 unet（分割表格线 → 由线求行列，框准）；无线走读光 LORE（ONNX，见 model/lore.py）。
+# 只在 tablerec.backend=legacy 时加载。
+tablestruct:
+  model_dir: models/table
+  wired_model: unet.onnx                 # 有线表格
+  lore_dir: models/lore                  # 无线表格：读光（det.onnx + proc.onnx）
+
+# ---------------------------------------------------------------- 抓取（训练数据）
+# 巨潮资讯网公告 → PDF → 挑出"含数据表"的页 → 200 DPI PNG。
+# 入口：PYTHONPATH=src:tests python -m crawl status|catalog|run|scan
+crawl:
+  data_root: data            # raw/ 原件、pages/ 页图、crawl.sqlite 台账
+  workers: 4                 # 并发下载+渲染。cninfo 别贪多，4 已被 ban 过一次
+  page_dpi: 200              # 与数据链路一致；A4 出 1654×2339
+  min_rows: 5                # 一页至少几行"数字成列"才算表格页（正文页一般 0~2）
+  max_pages_per_doc: 8       # 单份报告最多留几页（按数据行数取前 N）
+  max_pdf_mb: 60             # 单份 PDF 上限，超了跳过（有几个上百 MB 的拼版年报）
+  pdf_budget_gb: 55          # PDF 原件总预算，超了只留页图不留 PDF
+  min_free_gb: 20            # 磁盘保底，低于它整个任务停
+  target_images: 30000       # 页图目标（本次"至少几万"）
+  max_docs: 0                # 0 = 不限，由 target_images 收口
+  timeout_s: 60
+  retries: 3
+  retry_wait_s: 2.0
+  min_delay_s: 0.15          # 列表翻页之间的礼貌间隔

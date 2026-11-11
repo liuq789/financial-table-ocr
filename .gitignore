@@ -1,0 +1,41 @@
+# 模型权重（约 2.0G）：用 python fetch_models.py pull 下载到 models/，不入库
+models/
+
+# 权重文件一律不入库（即使被拷到 models/ 之外也拦住）
+*.onnx
+*.safetensors
+*.pt
+*.pth
+*.pdmodel
+*.pdiparams
+*.gguf
+*.ckpt
+
+# 语料与抓取缓存（约 13G）：原始年报 PDF、渲染页图、抓取台账
+data/
+
+# 运行期产物：pid、日志、每个任务的中间文件
+work/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 依赖轮子（openai 离线包，按需自行下载）
+wheels/
+
+# 日志与临时文件
+*.log
+*.tmp
+*.part
+*.swp
+
+# 编辑器与系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

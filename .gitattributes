@@ -1,0 +1,19 @@
+# 统一用 LF：Windows 上的 CRLF 会直接打坏 shell 脚本
+* text=auto eol=lf
+
+*.sh    text eol=lf
+*.py    text eol=lf
+*.md    text eol=lf
+*.json  text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+*.html  text eol=lf
+*.txt   text eol=lf
+
+# 图片按二进制存，别做换行转换
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.xlsx  binary
+*.pdf   binary
+*.onnx  binary
