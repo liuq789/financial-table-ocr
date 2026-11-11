@@ -1,5 +1,7 @@
 # 财报表格识别（financial-table-ocr）
 
+[English](README.en.md) | **中文**
+
 PDF / 图片 → **结构化的 JSON + 可编辑的 Excel**。面向中文财报的密集表格：
 合并单元格、两级表头、无线表、跨页续表都能还原成真正的网格。
 
