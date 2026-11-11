@@ -1,151 +1,162 @@
-# 财报表格识别（financial-table-ocr）
+# Financial Table OCR (financial-table-ocr)
 
-[English](README.en.md) | **中文**
+**English** | [中文](README.zh.md)
 
-PDF / 图片 → **结构化的 JSON + 可编辑的 Excel**。面向中文财报的密集表格：
-合并单元格、两级表头、无线表、跨页续表都能还原成真正的网格。
+Turns PDFs and images into **structured JSON + editable Excel**. Built for the dense tables found
+in Chinese financial reports: merged cells, two-level headers, borderless tables and tables that
+continue across pages are all restored into a real grid.
 
-## 案例
+## Examples
 
-### 1. 资产构成表：两级表头 + 合并单元格
+### 1. Asset composition: two-level header + merged cells
 
-![资产构成](docs/case1_asset_change.jpg)
+![Asset composition](docs/case1_asset_change.jpg)
 
-15 行 × 7 列、100 格。`项目` 纵跨两行，`2023 年末 / 2023 年初` 各横跨「金额 / 占总资产比例」
-两列，`短期借款` 的说明栏是多行文本——这些都按真实合并关系还原。
+15 rows × 7 columns, 100 cells. `项目` (Item) spans two rows, `2023 年末 / 2023 年初` each span
+the two columns "amount / share of total assets", and the note column of `短期借款` holds
+multi-line text — all restored with their actual merge relationships.
 
-- 产物：[JSON](docs/examples/000651_p029_asset_change.json) · [Excel](docs/examples/000651_p029_asset_change.xlsx)
-- 耗时 10.8s（其中 PaddleOCR-VL 8.6s）
+- Output: [JSON](docs/examples/000651_p029_asset_change.json) · [Excel](docs/examples/000651_p029_asset_change.xlsx)
+- Runtime 10.8s (PaddleOCR-VL accounts for 8.6s)
 
-### 2. 所有者权益变动表：12 列 + 三级表头
+### 2. Statement of changes in equity: 12 columns + three-level header
 
-![所有者权益变动表](docs/case2_equity_change.jpg)
+![Statement of changes in equity](docs/case2_equity_change.jpg)
 
-15 行 × 12 列、157 格。表头三层（`归属于母公司股东的权益` 下再分 6 个子项），
-首列科目名与多列纵向合并同时存在，是财报里最容易识别错的一类表。
+15 rows × 12 columns, 157 cells. The header has three levels (`归属于母公司股东的权益` splits into
+6 sub-items), and the first column merges vertically across several rows — the kind of table that
+is easiest to get wrong.
 
-- 产物：[JSON](docs/examples/601187_p133_equity_change.json) · [Excel](docs/examples/601187_p133_equity_change.xlsx)
-- 耗时 9.9s（其中 PaddleOCR-VL 7.8s）
+- Output: [JSON](docs/examples/601187_p133_equity_change.json) · [Excel](docs/examples/601187_p133_equity_change.xlsx)
+- Runtime 9.9s (PaddleOCR-VL accounts for 7.8s)
 
-两份示例都是由本项目的默认后端 `paddleocr_vl` 直接跑出来的原始产物，未做任何手工修正。
+Both examples are raw output of the default backend `paddleocr_vl`, with no manual corrections.
 
-## 快速开始
+## Quick start
 
 ```bash
 cd financial-table-ocr
-python fetch_models.py pull   # 首次：拉权重到 models/（约 2.0G，见「模型下载」）
-bash start.sh                 # 起模型服务（vLLM）+ 网页前端，等到就绪
-# 浏览器打开 http://127.0.0.1:8010
+python fetch_models.py pull   # first run: fetch weights into models/ (~2.0G, see "Model download")
+bash start.sh                 # start the model service (vLLM) + web UI, wait until ready
+# open http://127.0.0.1:8010
 ```
 
-`start.sh` 依次做：环境体检（Python / 权重 / 显存 / 端口）→ 起模型并等 `/v1/models`
-→ 起前端并等 `/api/health` → 打印地址、pid、内存与显存、模型是否在线。
+`start.sh` runs a preflight (Python / weights / GPU memory / ports) → starts the model service and
+waits for `/v1/models` → starts the web UI and waits for `/api/health` → prints addresses, pids,
+free RAM and VRAM, whether the model is online.
 
 ```bash
-bash start.sh status          # 谁在跑
-bash start.sh stop            # 全停
+bash start.sh status          # what is running
+bash start.sh stop            # stop everything
 bash start.sh restart
-bash start.sh logs            # 跟踪模型与前端日志
-bash start.sh start --no-model    # 只起前端（走本地 ONNX 链路）
+bash start.sh logs            # follow model and web logs
+bash start.sh start --no-model    # web UI only (local ONNX path)
 WEB_PORT=8020 MODEL_PORT=8001 bash start.sh
 ```
 
-模型起不来时前端照样启动，并明确提示"已退回本地 ONNX（准确率低一档）"。
+If the model service cannot start, the web UI still comes up and says so explicitly ("fell back to
+local ONNX, one notch lower accuracy").
 
-命令行直接跑一份文档：
+Running a document from the CLI:
 
 ```bash
 PYTHONPATH=src $PY -m pipeline --input data/pdfs/000651_2023_annual.pdf --pages 114-117
 PYTHONPATH=src $PY -m pipeline --input data/images/ruled/000651_p029_asset_change.png --out work/out
-# 指定后端 / 覆盖模型地址
+# pick a backend / override the model endpoint
 PYTHONPATH=src $PY -m pipeline --input xxx.pdf --backend legacy --model-url http://127.0.0.1:8000/v1
 ```
 
-产物：`<输出目录>/<文件名>.json` 与 `<文件名>.xlsx`（PDF 每页一个 sheet）。
+Output: `<out dir>/<name>.json` and `<name>.xlsx` (one sheet per PDF page).
 
-## 结构
+## Layout
 
 ```
 financial-table-ocr/
-├── config.yaml            全部参数（后端、模型、资源限额）
-├── start.sh               一键启停：模型服务 + 前端
-├── serve_model.sh         单独起 vLLM（显存预检 + 崩溃守护重启）
-├── fetch_models.py        下载 / 校验权重（仓库不含权重）
-├── models/                权重目录，不入库（约 2.0G）
-│   ├── ppocr/             PP-OCR ONNX：文字检测 / 方向分类
-│   ├── ocr/               PP-OCR ONNX：识别模型 + 字典
-│   ├── layout/            版面分析 PP-DocLayoutV3（ONNX）
-│   ├── table/             有线 / 无线分类、有线表 UNet（legacy 用）
-│   ├── lore/              无线表结构（读光 LORE，legacy 用）
-│   └── paddleocr_vl/      PaddleOCR-VL-1.5 权重（1.8G）
-├── docs/                  案例图与两份产物示例（examples/）
-├── data/                  语料与样本（不入库）
+├── config.yaml            all parameters (backend, model, resource limits)
+├── start.sh               one-shot start/stop: model service + web UI
+├── serve_model.sh         start vLLM alone (VRAM precheck + restart-on-crash)
+├── fetch_models.py        download / verify weights (the repo ships none)
+├── models/                weights, not tracked (about 2.0G)
+│   ├── ppocr/             PP-OCR ONNX: text detection / line orientation
+│   ├── ocr/               PP-OCR ONNX: recognition model + dictionaries
+│   ├── layout/            PP-DocLayoutV3 layout analysis (ONNX)
+│   ├── table/             wired/wireless classifier, wired-table UNet (legacy only)
+│   ├── lore/              wireless table structure (LORE, legacy only)
+│   └── paddleocr_vl/      PaddleOCR-VL-1.5 weights (1.8G)
+├── docs/                  example images and two sample outputs (examples/)
+├── data/                  corpus and samples (not tracked)
 └── src/
-    ├── config.py          读 config.yaml
-    ├── logging_setup.py   logging 配置 + 分阶段计时（Stopwatch）
-    ├── resource_guard.py  资源预算：内存/显存门槛、任务内增量上限
-    ├── pdf2image.py       PDF → 页图（PyMuPDF）
-    ├── preprocess.py      倾斜矫正 + 180° 翻转
-    ├── pipeline.py        整份文档 → 分区结果（table / char）
-    ├── export.py          写 JSON / XLSX（含合并单元格）
+    ├── config.py          reads config.yaml
+    ├── logging_setup.py   logging setup + per-stage timing (Stopwatch)
+    ├── resource_guard.py  resource budget: RAM/VRAM thresholds, per-task growth cap
+    ├── pdf2image.py       PDF → page images (PyMuPDF)
+    ├── preprocess.py      skew correction + 180° flip
+    ├── pipeline.py        whole document → regions (table / char)
+    ├── export.py          write JSON / XLSX (including merged cells)
     ├── model/
-    │   ├── onnx_session.py     统一建会话（关内存池、限线程数）
-    │   ├── ppocr.py            文字检测 / 方向判别 / 识别
-    │   ├── layout.py           版面：表格框（含低分框几何复核）
-    │   ├── table_cls.py        有线 / 无线分类
-    │   ├── table_structure.py  有线表结构（UNet）
-    │   ├── lore.py             无线表结构（读光）
-    │   └── paddleocr_vl.py     调 PaddleOCR-VL（结构+文字一次出）+ 输出解析
-    └── web/                    网页服务（标准库，无框架）
-        ├── server.py           HTTP + 任务编排（准入 / 预算 / 清理 / 优雅退出）
-        ├── upload.py           流式 multipart：边收边落盘
-        ├── gate.py             准入控制：有界并发 + 有界排队
-        └── index.html          单页前端（原生 JS，无构建）
+    │   ├── onnx_session.py     single place to build sessions (no memory arena, capped threads)
+    │   ├── ppocr.py            text detection / orientation / recognition
+    │   ├── layout.py           layout: table boxes (with geometric re-check of low scores)
+    │   ├── table_cls.py        wired / wireless classification
+    │   ├── table_structure.py  wired table structure (UNet)
+    │   ├── lore.py             wireless table structure (LORE)
+    │   └── paddleocr_vl.py     calls PaddleOCR-VL (structure + text in one pass) + parsing
+    └── web/                    web service (stdlib only, no framework)
+        ├── server.py           HTTP + job orchestration (admission / budget / cleanup / shutdown)
+        ├── upload.py           streaming multipart: written to disk while receiving
+        ├── gate.py             admission control: bounded concurrency + bounded queue
+        └── index.html          single-page front end (vanilla JS, no build step)
 ```
 
-## 处理流程
+## Pipeline
 
 ```
-PDF/图片 → 页图(PyMuPDF) → 倾斜/翻转矫正 → 版面找表(PP-DocLayoutV3)
-        → 表格识别（两种后端任选）→ 表格外正文 OCR → 分区输出 → JSON + XLSX
+PDF/image → page images (PyMuPDF) → deskew/flip → find tables (PP-DocLayoutV3)
+          → table recognition (one of two backends) → OCR of non-table text → regions → JSON + XLSX
 ```
 
-### 表格识别：两条后端
+### Table recognition: two backends
 
-`config.yaml` 的 `tablerec.backend` 选。**版面找表两条路都用本地模型**，只换"表内怎么读"：
+Selected by `tablerec.backend` in `config.yaml`. **Both paths use local models for layout**; only
+"how the inside of a table is read" changes:
 
-| backend | 结构（行列/合并） | 文字 | 特点 |
+| backend | structure (rows/cols/merges) | text | notes |
 |---|---|---|---|
-| `legacy` | 有线 UNet / 无线读光 ONNX | PP-OCR 逐格识别 | 离线、2~3s/页，结构偏弱 |
-| `paddleocr_vl`（默认） | PaddleOCR-VL 一次出 | 同一次输出里带 | 本机 vLLM、7~12s/页，结构准 |
+| `legacy` | wired UNet / wireless LORE (ONNX) | PP-OCR, cell by cell | offline, 2–3s per page, weaker structure |
+| `paddleocr_vl` (default) | produced in one pass | in the same output | local vLLM, 7–12s per page, accurate structure |
 
-实测（10 张真实年报页、653 个数字，与 PDF 文字层的数字比对）：
+Measured on 10 real annual-report pages, 653 numbers, compared against the PDF text layer:
 
-| 后端 | 数字召回 | 数字精确 |
+| backend | number recall | number precision |
 |---|---|---|
 | `legacy` | 72.4% | 62.8% |
 | `paddleocr_vl` | **97.7%** | **100%** |
 
-legacy 的短板是结构：漏检的行线会把两行挤进同一行带，同一批数字被重复写进多个格子，
-所以精确率偏低。密集财报表建议 `paddleocr_vl`，稀疏表或起不了服务时用 `legacy`。
+The weak point of `legacy` is structure: missed row lines squeeze two rows into one band, so the
+same numbers get written into several cells and precision drops. Use `paddleocr_vl` for dense
+financial tables, `legacy` for sparse ones or when the service cannot run.
 
-`paddleocr_vl` 单张表失败会自动退回 legacy（`tablerec.fallback_legacy`），整页不受影响。
+If a single table fails under `paddleocr_vl`, that table falls back to `legacy`
+(`tablerec.fallback_legacy`); the rest of the page is unaffected.
 
-### 准确性保障（`paddleocr_vl`）
+### Accuracy safeguards (`paddleocr_vl`)
 
-- **网格校验**：行列号冲突、有空洞、或 ≥60% 格子为空 → 判不合格。
-- **换提示词重问**：`temperature=0` 时同词只会复现同一个错，所以换更硬的提示词（`repair_attempts`）。
-- **超长自愈**：服务端报上下文超长时自动缩图重发（`shrink_attempts`）。
-- **兜底**：重问仍不合格只退这一张表，不失败整页。
+- **Grid validation**: row/column index conflicts, holes, or ≥60% empty cells → rejected.
+- **Re-ask with a stricter prompt**: with `temperature=0` the same prompt reproduces the same
+  mistake, so a harder prompt is used instead (`repair_attempts`).
+- **Self-healing on overflow**: if the server reports a too-long context, the image is downscaled
+  and resent (`shrink_attempts`).
+- **Fallback**: if the re-ask still fails, only that table falls back — the page does not fail.
 
-## 输出格式
+## Output format
 
-一页拆成若干**分区**，按阅读顺序（先上下、再左右）排。只有两种：
+A page is split into **regions** in reading order (top to bottom first, then left to right).
+There are only two kinds:
 
-| type | 内容 |
+| type | contents |
 |---|---|
-| `table` | `cells[]` 每格带 `row / col / rowspan / colspan / bbox / ocr`，行列号是该分区自己的，从 0 开始 |
-| `char` | 文字块。`text` 是整块文本（多行用 `\n`），`lines[]` 是逐行 `text / bbox` |
+| `table` | `cells[]`, each with `row / col / rowspan / colspan / bbox / ocr`; indices are local to the region and start at 0 |
+| `char` | a text block. `text` is the whole block (multi-line joined with `\n`), `lines[]` holds per-line `text / bbox` |
 
 ```jsonc
 {
@@ -174,33 +185,33 @@ legacy 的短板是结构：漏检的行线会把两行挤进同一行带，同�
 }
 ```
 
-`kind` 取值：`wired` / `wireless`（legacy 后端）、`paddleocr_vl`（模型后端）。
-`fallbacks[]` 记录哪些表因模型不可用退回了本地链路。
+`kind` is `wired` / `wireless` for the legacy backend and `paddleocr_vl` for the model backend.
+`fallbacks[]` records which tables fell back to the local path because the model was unavailable.
 
-Excel：一页一个 sheet，合并单元格按 `rowspan/colspan` 还原、带框线、数字右对齐，
-表格外正文按行铺满整行。
+Excel: one sheet per page, merged cells restored from `rowspan`/`colspan`, borders drawn, numbers
+right-aligned, and non-table text laid out line by line across the full row width.
 
-## 配置
+## Configuration
 
-`config.yaml` 是唯一参数来源：
+`config.yaml` is the single source of parameters:
 
 ```yaml
 tablerec:
   backend: paddleocr_vl        # legacy | paddleocr_vl
-  fallback_legacy: true        # 单表失败退回本地链路
+  fallback_legacy: true        # fall back per table on failure
   paddleocr_vl:
     base_url: http://127.0.0.1:8000/v1
     model: "PaddleOCR-VL"
     prompt: "Table Recognition:"
     max_tokens: 8192
-    max_side: 1600             # 送图长边上限
-    max_pixels: 2560000        # 送图像素上限（≈1600×1600）
-    total_timeout: 300         # 单表总时间预算（含重试与重问）
+    max_side: 1600             # max long side of the image sent
+    max_pixels: 2560000        # max pixels sent (≈1600×1600)
+    total_timeout: 300         # per-table time budget (including retries and re-asks)
     retries: 2
     repair_attempts: 1
     shrink_attempts: 2
 
-guard:                         # 资源保护，见下节
+guard:                         # resource protection, see the section below
   max_upload_mb: 60
   max_pages: 60
   max_page_pixels: 40000000
@@ -213,132 +224,150 @@ guard:                         # 资源保护，见下节
   max_work_mb: 4096
 ```
 
-`render.dpi`（默认 200）控制 PDF 渲染分辨率；`preprocess` 段控制倾斜/翻转矫正阈值。
+`render.dpi` (default 200) controls PDF rasterisation; the `preprocess` section controls the
+deskew/flip thresholds.
 
-## 网页界面
+## Web UI
 
-单页、无构建、无外部 CDN（服务端也是标准库写的）：
+Single page, no build step, no external CDN (the server is stdlib-only too):
 
-- 拖入 PDF 或图片 → 选后端、页范围、DPI、是否矫正 → 开始识别；
-- 三个标签，**都是完整内容**：
-  - **概览**：每页缩略图、每张表的行×列/格数、前 8 行速览、该页各阶段耗时；
-  - **Excel**：xlsx 解析成网格后原样铺开——行列号与列标冻结、合并单元格还原、
-    列宽按 xlsx 记录、数字右对齐、多页时为 sheet 标签；
-  - **JSON**：全文 + 行号 + 语法高亮，可复制、可切自动换行；
-- 顶部状态条直接说明**这次谁在跑**：模型可达为绿，有表退回本地则亮红并附原因；
-- 结果可深链打开：`/?job=<任务ID>&tab=json`（或 `excel` / `overview`），刷新不丢；
-- 「PaddleOCR-VL 参数」面板只作用于本次请求，不写回 `config.yaml`。
+- Drop a PDF or an image → choose backend, page range, DPI, whether to deskew → run;
+- Three tabs, **all showing complete content**:
+  - **Overview**: thumbnail per page, rows × cols / cell count per table, first 8 rows, per-stage
+    timings for that page;
+  - **Excel**: the xlsx parsed into a grid and rendered as-is — frozen row/column headers, merges
+    restored, column widths taken from the file, numbers right-aligned, one tab per page;
+  - **JSON**: full text with line numbers and syntax highlighting, copyable, line-wrap toggle;
+- The status bar at the top states **what actually ran**: green when the model is reachable, red
+  with a reason when tables fell back to the local path;
+- Results are deep-linkable: `/?job=<job id>&tab=json` (or `excel` / `overview`), so a refresh does
+  not lose them;
+- The "PaddleOCR-VL parameters" panel applies to the current request only and never writes back to
+  `config.yaml`.
 
-接口：
+Endpoints:
 
-| 方法 | 路径 | 说明 |
+| method | path | description |
 |---|---|---|
-| GET | `/` | 前端页面 |
-| GET | `/api/config` | 表单默认值（不含 api_key） |
-| GET | `/api/health` | 资源与负载：内存、显存、RSS、排队深度、已拒次数、模型服务状态 |
-| GET | `/api/probe?base_url=` | 探活模型服务 |
-| POST | `/api/run` | multipart 上传，返回摘要 + 下载链接 + `engine`（实际引擎/降级原因） |
-| GET | `/api/summary/<job>` | 任务摘要（刷新后重开结果） |
-| GET | `/api/doc/<job>` | 完整 JSON |
-| GET | `/api/sheets/<job>` | xlsx 解析成网格（行值 + 合并区 + 列宽） |
-| GET | `/api/file/<job>/<name>` | 下载 json / xlsx |
+| GET | `/` | the front end |
+| GET | `/api/config` | form defaults (never includes api_key) |
+| GET | `/api/health` | resources and load: RAM, VRAM, RSS, queue depth, rejections, model service state |
+| GET | `/api/probe?base_url=` | probe the model service |
+| POST | `/api/run` | multipart upload; returns a summary + download links + `engine` (what ran / why it fell back) |
+| GET | `/api/summary/<job>` | job summary (reopen results after a refresh) |
+| GET | `/api/doc/<job>` | the full JSON |
+| GET | `/api/sheets/<job>` | the xlsx parsed into a grid (values + merges + column widths) |
+| GET | `/api/file/<job>/<name>` | download the json / xlsx |
 
-## 资源保护
+## Resource protection
 
-目标：**进程永不被 OOM 杀掉**。过载时的表现是部分请求拿到 429/503，而不是服务消失。
+Goal: **the process is never OOM-killed**. Under overload the symptom is some requests getting
+429/503, not the service disappearing.
 
-| 闸门 | 位置 | 行为 |
+| gate | location | behaviour |
 |---|---|---|
-| 上传流式落盘 | `src/web/upload.py` | 256KB 分块写文件，内存与文件大小无关；超限 413 |
-| 连接数上限 | `src/web/server.py` | 超过 `max_conns` 直接 503 + `Retry-After` |
-| 准入控制 | `src/web/gate.py` | 在跑 `max_inflight` 单、排队 `max_pending` 单，满了 429 |
-| 开工前预算 | `resource_guard.Budget` | 可用内存 < `min_free_mb` 不开工（503） |
-| 任务内预算 | 每页之间 | 本任务内存增量 > `max_rss_mb` 中止这一单（503） |
-| 单页像素上限 | `pipeline` | 超大页先等比缩小 |
+| streaming upload | `src/web/upload.py` | written to disk in 256KB chunks; memory independent of file size; over-limit 413 |
+| connection cap | `src/web/server.py` | above `max_conns` → 503 + `Retry-After` |
+| admission control | `src/web/gate.py` | `max_inflight` running + `max_pending` queued; full → 429 |
+| pre-run budget | `resource_guard.Budget` | free RAM below `min_free_mb` → refuse to start (503) |
+| in-task budget | between pages | task growth above `max_rss_mb` → abort that job (503) |
+| per-page pixel cap | `pipeline` | oversized pages are downscaled first |
 
-配套：模型会话统一走 `src/model/onnx_session.py`（关 onnxruntime 内存池，单页峰值
-4.15GB → 1.51GB）；Pipeline 只缓存一份；产物按 `keep_hours` / `max_work_mb` 自动清理。
-实测 30 并发：成功 5、限流 25、**0 个 500**，进程 pid 不变、内存不累积。
+Supporting measures: every model session goes through `src/model/onnx_session.py` (onnxruntime
+memory arena disabled — per-page peak drops from 4.15GB to 1.51GB); only one Pipeline is cached;
+job artefacts are cleaned up according to `keep_hours` / `max_work_mb`. Measured with 30
+concurrent uploads: 5 succeeded, 25 rate-limited, **0 server errors**, same pid, no memory growth.
 
-运行期会在 `work/` 下生成中间产物与日志（`work/run` pid、`work/logs` 日志、
-`work/web/<job>` 任务产物），整目录可随时删除。
+At runtime `work/` holds intermediate files and logs (`work/run` pids, `work/logs` logs,
+`work/web/<job>` artefacts); the whole directory can be deleted at any time.
 
-## 模型下载
+## Model download
 
-仓库不含任何权重（`.gitignore` 排除了 `models/` 与所有 `.onnx/.safetensors/.pt` 等文件），
-全部从 ModelScope 现取：
+The repository ships no weights (`.gitignore` excludes `models/` and all `.onnx/.safetensors/.pt`
+files); everything is fetched from ModelScope on demand:
 
 ```bash
-python fetch_models.py list                  # 看清单，标出还缺哪些
-python fetch_models.py pull                  # 下载缺失项（大小已对上就跳过）
-python fetch_models.py pull --only vl,layout # 只下某几组：vl / text / layout / table / lore
-python fetch_models.py verify                # 校验大小与 sha256
+python fetch_models.py list                  # show the manifest and what is missing
+python fetch_models.py pull                  # download what is missing (skips files already matching)
+python fetch_models.py pull --only vl,layout # only some groups: vl / text / layout / table / lore
+python fetch_models.py verify                # verify size and sha256
 ```
 
-脚本只用标准库，Windows 与 WSL 都能跑；WSL 出网受限时在 Windows 侧执行，产物直接落
-`models/`。下载走 `.part` 临时文件 + 大小与 sha256 校验，断了重跑会接着补缺的。
+The script is stdlib-only and runs on Windows and WSL. If WSL has no outbound network, run it on the
+Windows side — files land in `models/` either way. Downloads go through a `.part` file with size and
+sha256 checks, so re-running after an interruption only fills in what is missing.
 
-| 目录 | 文件 | 大小 | 来源（ModelScope 仓库 → 文件） |
+| directory | files | size | source (ModelScope repo → file) |
 |---|---|---|---|
-| `paddleocr_vl/` | 18 个文件（含 `model.safetensors` 1.79G） | 1.83G | `PaddlePaddle/PaddleOCR-VL-1.5` |
-| `ppocr/` | `PP-OCRv6_det_small.onnx`<br>`ch_PP-LCNet_x0_25_textline_ori_cls_mobile.onnx` | 10.4M | `greatv/oar-ocr` → `pp-ocrv6_small_det.onnx`、`pp-lcnet_x0_25_textline_ori.onnx` |
-| `ocr/` | `PP-OCRv6_rec_small.onnx`、`ppocrv6_dict.txt`、`ppocr_keys_v1.txt` | 20.3M | `greatv/oar-ocr` → 同名文件 |
-| `layout/` | `pp_doc_layoutv3.onnx` | 124.5M | `PaddlePaddle/PP-DocLayoutV3_onnx` → `inference.onnx`（下载后改名） |
-| `table/` | `unet.onnx`、`table_cls.onnx` | 14.4M | `RapidAI/RapidTable` → `unet.onnx`、`table_cls/paddle_cls.onnx` |
-| `lore/` | `pytorch_model.pt`、`configuration.json` | 86.3M | `damo/cv_resnet-transformer_table-structure-recognition_lore` |
+| `paddleocr_vl/` | 18 files (including `model.safetensors`, 1.79G) | 1.83G | `PaddlePaddle/PaddleOCR-VL-1.5` |
+| `ppocr/` | `PP-OCRv6_det_small.onnx`<br>`ch_PP-LCNet_x0_25_textline_ori_cls_mobile.onnx` | 10.4M | `greatv/oar-ocr` → `pp-ocrv6_small_det.onnx`, `pp-lcnet_x0_25_textline_ori.onnx` |
+| `ocr/` | `PP-OCRv6_rec_small.onnx`, `ppocrv6_dict.txt`, `ppocr_keys_v1.txt` | 20.3M | `greatv/oar-ocr` → same file names |
+| `layout/` | `pp_doc_layoutv3.onnx` | 124.5M | `PaddlePaddle/PP-DocLayoutV3_onnx` → `inference.onnx` (renamed after download) |
+| `table/` | `unet.onnx`, `table_cls.onnx` | 14.4M | `RapidAI/RapidTable` → `unet.onnx`, `table_cls/paddle_cls.onnx` |
+| `lore/` | `pytorch_model.pt`, `configuration.json` | 86.3M | `damo/cv_resnet-transformer_table-structure-recognition_lore` |
 
-- 前四行是默认后端 `paddleocr_vl` 需要的；`table/` 与 `lore/` 只在 `backend: legacy` 时加载。
-- 这些 ONNX 由上游从飞桨官方权重转换而来：`ppocr/`、`ocr/`、`layout/` 三个目录里开发机上
-  的副本是同模型的另一次导出（输入输出签名一致，同一页逐格结果完全相同），`fetch_models.py`
-  对它们放宽为「大小落在两个已知值之一即可」，其余文件按 sha256 严格校验。
-- `lore/det.onnx` 与 `lore/proc.onnx` 是本项目从 `pytorch_model.pt` 导出的（输入改名为
-  `img` / `feat`），上游同名文件输入签名不同、不能直接顶替，所以不在下载清单里。默认后端
-  用不到它们；只有 `legacy` 后端遇到无线表格时才需要，缺了会明确报错。
+- The first four rows are what the default backend `paddleocr_vl` needs; `table/` and `lore/` are
+  only loaded when `backend: legacy`.
+- These ONNX files are upstream conversions of the official PaddlePaddle weights. For `ppocr/`,
+  `ocr/` and `layout/`, the copies on the development machine are a different export of the same
+  model (identical input/output signatures, pixel-for-pixel identical results on the same page), so
+  `fetch_models.py` accepts either of two known sizes for them; every other file is checked by
+  sha256.
+- `lore/det.onnx` and `lore/proc.onnx` are exported by this project from `pytorch_model.pt` (inputs
+  renamed to `img` / `feat`). The upstream files of the same name have different input signatures
+  and cannot be dropped in, so they are not in the download list. The default backend does not need
+  them; only the `legacy` backend hits them on borderless tables, and it reports a clear error if
+  they are missing.
 
-## 部署模型服务
+## Serving the model
 
-1. **权重**：`python fetch_models.py pull --only vl`（见上面「模型下载」）。
-   vLLM 从 `models/paddleocr_vl/` 读，含 `config.json`、`model.safetensors`、`tokenizer*`、
-   `preprocessor_config.json`、`chat_template.jinja` 与几个 `*.py` 远程代码。
+1. **Weights**: `python fetch_models.py pull --only vl` (see "Model download" above). vLLM reads
+   `models/paddleocr_vl/`, which must contain `config.json`, `model.safetensors`, `tokenizer*`,
+   `preprocessor_config.json`, `chat_template.jinja` and the remote-code `*.py` files.
 
-2. **依赖**：vLLM 0.19 需要 `openai>=1.x`，环境里是 0.28。隔离装，不动 conda env：
+2. **Dependencies**: vLLM 0.19 needs `openai>=1.x` while the env has 0.28. Install it in isolation,
+   leaving the conda env untouched:
 
    ```bash
-   # Windows 侧下轮子（放任意目录，例如 wheels/）
+   # fetch the wheel on the Windows side (any directory, e.g. wheels/)
    python -m pip download "openai<2" --no-deps -d wheels
 
-   # WSL 侧离线装到隔离目录，不碰 conda env
+   # install offline into an isolated directory on the WSL side
    pip install --no-index --no-deps --target ~/vllm_extra wheels/openai-1.109.1-py3-none-any.whl
    ```
 
-   已经装过就不用重复（`ls ~/vllm_extra/openai` 能列出来即可）。
+   No need to repeat if already installed (`ls ~/vllm_extra/openai` should list files).
 
-3. **启动**：`bash start.sh`（或单独 `bash serve_model.sh`）。
+3. **Start**: `bash start.sh` (or `bash serve_model.sh` alone).
 
-`serve_model.sh` 的关键参数（均可用环境变量覆盖）：
+Key parameters of `serve_model.sh` (all overridable via environment variables):
 
-| 变量 | 默认 | 说明 |
+| variable | default | description |
 |---|---|---|
-| `PY` | 自动探测 `~/miniconda3/envs/llm/bin/python`，否则 `python3` | 装了 vLLM 的环境；也可 `PY=...` 显式指定 |
-| `MODEL` / `MODEL_NAME` | `models/paddleocr_vl` / `PaddleOCR-VL` | 权重路径与服务名 |
-| `PORT` | `8000` | OpenAI 兼容端口 |
-| `GPU_MEM` | `0.60` | 显存占比（约 9.8G，余量留给系统） |
-| `MAX_LEN` | `16384` | 上下文长度，限制 KV 上限 |
-| `NEED_MB` | `8192` | 启动前显存门槛，不够直接退出 |
-| `EAGER` | `1` | 跳过 `torch.compile`（WSL 上编译要 5~10 分钟） |
-| `RESTART_MAX` | `5` | 崩溃自动重启次数上限 |
+| `PY` | auto-detects `~/miniconda3/envs/llm/bin/python`, else `python3` | the environment with vLLM; can also be set with `PY=...` |
+| `MODEL` / `MODEL_NAME` | `models/paddleocr_vl` / `PaddleOCR-VL` | weight path and served model name |
+| `PORT` | `8000` | OpenAI-compatible port |
+| `GPU_MEM` | `0.60` | fraction of VRAM (about 9.8G, leaving headroom for the system) |
+| `MAX_LEN` | `16384` | context length, caps the KV cache |
+| `NEED_MB` | `8192` | free-VRAM threshold at startup; exits if not met |
+| `EAGER` | `1` | skip `torch.compile` (compilation takes 5–10 minutes under WSL) |
+| `RESTART_MAX` | `5` | maximum automatic restarts after a crash |
 
-## 环境
+## Environment
 
-WSL `Ubuntu-2204` + conda env `llm`（Python 3.10）：torch 2.10+cu128 / transformers 4.57 /
-onnxruntime / OpenCV / PyMuPDF / openpyxl。GPU：RTX 4070 Ti SUPER 16G，内存 16G。
+WSL `Ubuntu-2204` + conda env `llm` (Python 3.10): torch 2.10+cu128 / transformers 4.57 /
+onnxruntime / OpenCV / PyMuPDF / openpyxl. GPU: RTX 4070 Ti SUPER 16G, 16G RAM.
 
-## 已知限制
+## Known limitations
 
-- 表格外正文只给整块/逐行文本与坐标，不做版面分类（标题、正文、页眉不区分）。
-- `paddleocr_vl` 的单元格 `bbox` 是按行列均分估算的，用于排序与列宽；
-  像素级坐标请用 `legacy` 后端。
-- 一次最多处理 `guard.max_pages` 页；更长的 PDF 用页范围分批。
-- 稠密表的行线补齐（从文字行 y 反推行边界）未实现，`legacy` 后端仍可能并格。
-- `legacy` 的无线表依赖项目内导出的 `lore/det.onnx`、`lore/proc.onnx`（不在下载清单里），
-  缺这两个文件时请用默认后端 `paddleocr_vl`。
+- Text outside tables is returned as whole blocks or lines with coordinates, without layout
+  classification (headings, body text and page headers are not distinguished).
+- Cell `bbox` values from `paddleocr_vl` are estimated by evenly dividing the table box by
+  rows/columns; they are good for ordering and column widths. For pixel-accurate boxes use the
+  `legacy` backend.
+- At most `guard.max_pages` pages per request; split longer PDFs by page range.
+- Row-line completion for dense tables (inferring row boundaries from text-line y positions) is not
+  implemented, so the `legacy` backend may still merge cells.
+- Borderless tables in the `legacy` backend depend on the project-exported `lore/det.onnx` and
+  `lore/proc.onnx` (not in the download list). If they are missing, use the default backend
+  `paddleocr_vl`.

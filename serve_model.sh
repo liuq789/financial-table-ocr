@@ -40,7 +40,7 @@ if [ -d "$VLLM_EXTRA" ]; then
   export PYTHONPATH="$VLLM_EXTRA${PYTHONPATH:+:$PYTHONPATH}"
 else
   echo "缺少隔离依赖目录 $VLLM_EXTRA（vLLM 需要 openai>=1.x）" >&2
-  echo "装法见 README「部署视觉大模型服务」" >&2
+  echo "装法见 README「部署模型服务」/\"Serving the model\"" >&2
   exit 1
 fi
 
