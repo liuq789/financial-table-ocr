@@ -1,4 +1,4 @@
-# 财报表格识别（financial_ocr）
+# 财报表格识别（financial-table-ocr）
 
 PDF / 图片 → **结构化的 JSON + 可编辑的 Excel**。面向中文财报的密集表格：
 合并单元格、两级表头、无线表、跨页续表都能还原成真正的网格。
@@ -30,7 +30,7 @@ PDF / 图片 → **结构化的 JSON + 可编辑的 Excel**。面向中文财报
 ## 快速开始
 
 ```bash
-cd financial_ocr
+cd financial-table-ocr
 python fetch_models.py pull   # 首次：拉权重到 models/（约 2.0G，见「模型下载」）
 bash start.sh                 # 起模型服务（vLLM）+ 网页前端，等到就绪
 # 浏览器打开 http://127.0.0.1:8010
@@ -64,7 +64,7 @@ PYTHONPATH=src $PY -m pipeline --input xxx.pdf --backend legacy --model-url http
 ## 结构
 
 ```
-financial_ocr/
+financial-table-ocr/
 ├── config.yaml            全部参数（后端、模型、资源限额）
 ├── start.sh               一键启停：模型服务 + 前端
 ├── serve_model.sh         单独起 vLLM（显存预检 + 崩溃守护重启）
